@@ -103,15 +103,14 @@ if (req.method !== "GET" && req.method !== "HEAD") {
 
   // Download ZIP file with a random seven-digit filename
   if (url.pathname === "/download") {
-   const isDownloadPost =
-      url.pathname === "/download" &&
-      req.method === "POST";
-    
-    if (
-      req.method !== "GET" &&
-      req.method !== "HEAD" &&
-      !isDownloadPost
-    ) {
+    fs.stat(ZIP_PATH, (err, stats) => {
+      if (err || !stats.isFile()) {
+        res.writeHead(404, {
+          "Content-Type": "text/plain; charset=utf-8"
+        });
+        res.end("ZIP file not found");
+        return;
+      }
 
       // Generate a random seven-digit number
       const randomNumber = Math.floor(
