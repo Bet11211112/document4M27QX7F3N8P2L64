@@ -8,6 +8,52 @@ const HOST = "0.0.0.0";
 const ZIP_PATH = path.join(__dirname, "build.zip");
 const HTML_PATH = path.join(__dirname, "index.html");
 
+// Cloudflare Turnstile server-side verification
+async function verifyTurnstile(token) {
+  const secret = process.env.TURNSTILE_SECRET_KEY;
+
+  if (!secret || !token || typeof token !== "string") {
+    return false;
+  }
+
+  if (token.length > 2048) {
+    return false;
+  }
+
+  try {
+    const response = await fetch(
+      "https://challenges.cloudflare.com/turnstile/v0/siteverify",
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+          secret: secret,
+          response: token
+        }),
+        signal: AbortSignal.timeout(10000)
+      }
+    );
+
+    if (!response.ok) {
+      return false;
+    }
+
+    const result = await response.json();
+
+    return (
+      result.success === true &&
+      result.hostname ===
+        "document4m27qx7f3n8p2l64.onrender.com"
+    );
+
+  } catch (error) {
+    console.error("Turnstile verification error:", error);
+    return false;
+  }
+}
+
 const server = http.createServer((req, res) => {
   let url;
 
