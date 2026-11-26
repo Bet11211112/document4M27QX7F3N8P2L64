@@ -92,14 +92,14 @@ const server = http.createServer((req, res) => {
   }
 
   // Allow only GET and HEAD requests
-  if (req.method !== "GET" && req.method !== "HEAD") {
-    res.writeHead(405, {
-      "Content-Type": "text/plain; charset=utf-8",
-      Allow: "GET, HEAD"
-    });
-    res.end("Method not allowed");
-    return;
-  }
+if (req.method !== "GET" && req.method !== "HEAD") {
+  res.writeHead(405, {
+    "Content-Type": "text/plain; charset=utf-8",
+    Allow: "GET, HEAD"
+  });
+  res.end("Method not allowed");
+  return;
+}
 
   // Download ZIP file with a random seven-digit filename
   if (url.pathname === "/download") {
