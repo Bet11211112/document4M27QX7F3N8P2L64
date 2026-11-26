@@ -1,3 +1,4 @@
+
 const http = require("node:http");
 const fs = require("node:fs");
 const path = require("node:path");
@@ -7,6 +8,9 @@ const HOST = "0.0.0.0";
 
 const ZIP_PATH = path.join(__dirname, "build.zip");
 const HTML_PATH = path.join(__dirname, "index.html");
+
+const EXPECTED_HOSTNAME =
+  "document4m27qx7f3n8p2l64.onrender.com";
 
 // Cloudflare Turnstile server-side verification
 async function verifyTurnstile(token) {
@@ -44,8 +48,7 @@ async function verifyTurnstile(token) {
 
     return (
       result.success === true &&
-      result.hostname ===
-        "document4m27qx7f3n8p2l64.onrender.com"
+      result.hostname === EXPECTED_HOSTNAME
     );
 
   } catch (error) {
@@ -54,7 +57,7 @@ async function verifyTurnstile(token) {
   }
 }
 
-
+// Read form submission
 async function readFormBody(req) {
   const chunks = [];
   let size = 0;
@@ -74,51 +77,55 @@ async function readFormBody(req) {
   return new URLSearchParams(body);
 }
 
-
-const server = http.createServer((req, res) => {
-  let url;
-
-  try {
-    url = new URL(
-      req.url,
-      `http://${req.headers.host || "localhost"}`
-    );
-  } catch {
-    res.writeHead(400, {
-      "Content-Type": "text/plain; charset=utf-8"
-    });
-    res.end("Bad request");
-    return;
-  }
-
-  // Allow only GET and HEAD requests
-if (req.method !== "GET" && req.method !== "HEAD") {
-  res.writeHead(405, {
+// Send a text response
+function sendText(res, status, message) {
+  res.writeHead(status, {
     "Content-Type": "text/plain; charset=utf-8",
-    Allow: "GET, HEAD"
+    "Cache-Control": "no-store",
+    "X-Content-Type-Options": "nosniff"
   });
-  res.end("Method not allowed");
-  return;
+
+  res.end(message);
 }
 
-  // Download ZIP file with a random seven-digit filename
-  if (url.pathname === "/download") {
+// Handle verified download request
+async function handleDownload(req, res) {
+  try {
+    const contentType = req.headers["content-type"] || "";
+
+    if (!contentType.includes("application/x-www-form-urlencoded")) {
+      sendText(res, 415, "Unsupported content type");
+      return;
+    }
+
+    const form = await readFormBody(req);
+
+    const token = form.get("cf-turnstile-response");
+
+    if (!token) {
+      sendText(res, 403, "Please complete Turnstile verification.");
+      return;
+    }
+
+    const verified = await verifyTurnstile(token);
+
+    if (!verified) {
+      sendText(res, 403, "Verification failed. Please try again.");
+      return;
+    }
+
     fs.stat(ZIP_PATH, (err, stats) => {
       if (err || !stats.isFile()) {
-        res.writeHead(404, {
-          "Content-Type": "text/plain; charset=utf-8"
-        });
-        res.end("ZIP file not found");
+        sendText(res, 404, "ZIP file not found");
         return;
       }
 
-      // Generate a random seven-digit number
+      // Generate a random seven-digit filename
       const randomNumber = Math.floor(
         1000000 + Math.random() * 9000000
       );
 
-      const filename =
-        `RFQ_${randomNumber}.zip`;
+      const filename = `RFQ_${randomNumber}.zip`;
 
       res.writeHead(200, {
         "Content-Type": "application/zip",
@@ -128,11 +135,6 @@ if (req.method !== "GET" && req.method !== "HEAD") {
         "X-Content-Type-Options": "nosniff",
         "Cache-Control": "no-store"
       });
-
-      if (req.method === "HEAD") {
-        res.end();
-        return;
-      }
 
       const stream = fs.createReadStream(ZIP_PATH);
 
@@ -144,54 +146,75 @@ if (req.method !== "GET" && req.method !== "HEAD") {
       stream.pipe(res);
     });
 
+  } catch (error) {
+    console.error("Download request error:", error);
+
+    if (error.message === "Request too large") {
+      sendText(res, 413, "Request too large");
+    } else {
+      sendText(res, 400, "Invalid download request");
+    }
+  }
+}
+
+const server = http.createServer((req, res) => {
+  let url;
+
+  try {
+    url = new URL(
+      req.url,
+      `http://${req.headers.host || "localhost"}`
+    );
+  } catch {
+    sendText(res, 400, "Bad request");
     return;
   }
 
-  // Serve the same ZIP file with different declared content types
+  // Download requires POST and Turnstile verification
+  if (url.pathname === "/download") {
+    if (req.method !== "POST") {
+      res.writeHead(405, {
+        "Content-Type": "text/plain; charset=utf-8",
+        "Allow": "POST",
+        "Cache-Control": "no-store"
+      });
+
+      res.end("POST request required.");
+      return;
+    }
+
+    handleDownload(req, res);
+    return;
+  }
+
+  // Do not expose the ZIP through alternative routes
   if (
     url.pathname === "/plain" ||
     url.pathname === "/pdf-label"
   ) {
-    fs.readFile(ZIP_PATH, (err, data) => {
-      if (err) {
-        res.writeHead(500, {
-          "Content-Type": "text/plain; charset=utf-8"
-        });
-        res.end("Unable to read ZIP file");
-        return;
-      }
+    sendText(res, 404, "Not found");
+    return;
+  }
 
-      const declaredType =
-        url.pathname === "/plain"
-          ? "text/plain; charset=utf-8"
-          : "application/pdf";
-
-      res.writeHead(200, {
-        "Content-Type": declaredType,
-        "Content-Length": data.length,
-        "X-Content-Type-Options": "nosniff",
-        "Cache-Control": "no-store"
-      });
-
-      if (req.method === "HEAD") {
-        res.end();
-        return;
-      }
-
-      res.end(data);
+  // Allow only GET and HEAD for webpage routes
+  if (req.method !== "GET" && req.method !== "HEAD") {
+    res.writeHead(405, {
+      "Content-Type": "text/plain; charset=utf-8",
+      "Allow": "GET, HEAD"
     });
 
+    res.end("Method not allowed");
     return;
   }
 
   // Serve the HTML webpage
-  if (url.pathname === "/" || url.pathname === "/index.html") {
+  if (
+    url.pathname === "/" ||
+    url.pathname === "/index.html"
+  ) {
     fs.stat(HTML_PATH, (err, stats) => {
       if (err || !stats.isFile()) {
-        res.writeHead(500, {
-          "Content-Type": "text/plain; charset=utf-8"
-        });
-        res.end("Unable to load page");
+        sendText(res, 500, "Unable to load page");
         return;
       }
 
@@ -221,18 +244,15 @@ if (req.method !== "GET" && req.method !== "HEAD") {
   }
 
   // Return 404 for unknown routes
-  res.writeHead(404, {
-    "Content-Type": "text/plain; charset=utf-8"
-  });
-  res.end("Not found");
+  sendText(res, 404, "Not found");
 });
 
-// Start server on the hosting platform's assigned port
+// Start server
 server.listen(PORT, HOST, () => {
   console.log(`Server listening on ${HOST}:${PORT}`);
 });
 
-// Handle server startup errors
+// Handle startup errors
 server.on("error", (err) => {
   console.error("Server error:", err);
   process.exitCode = 1;
