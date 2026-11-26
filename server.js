@@ -54,6 +54,27 @@ async function verifyTurnstile(token) {
   }
 }
 
+
+async function readFormBody(req) {
+  const chunks = [];
+  let size = 0;
+
+  for await (const chunk of req) {
+    size += chunk.length;
+
+    if (size > 8192) {
+      throw new Error("Request too large");
+    }
+
+    chunks.push(chunk);
+  }
+
+  const body = Buffer.concat(chunks).toString("utf8");
+
+  return new URLSearchParams(body);
+}
+
+
 const server = http.createServer((req, res) => {
   let url;
 
@@ -82,14 +103,15 @@ const server = http.createServer((req, res) => {
 
   // Download ZIP file with a random seven-digit filename
   if (url.pathname === "/download") {
-    fs.stat(ZIP_PATH, (err, stats) => {
-      if (err || !stats.isFile()) {
-        res.writeHead(404, {
-          "Content-Type": "text/plain; charset=utf-8"
-        });
-        res.end("ZIP file not found");
-        return;
-      }
+   const isDownloadPost =
+  url.pathname === "/download" &&
+  req.method === "POST";
+
+if (
+  req.method !== "GET" &&
+  req.method !== "HEAD" &&
+  !isDownloadPost
+) {
 
       // Generate a random seven-digit number
       const randomNumber = Math.floor(
