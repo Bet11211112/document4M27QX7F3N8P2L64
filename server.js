@@ -104,14 +104,14 @@ const server = http.createServer((req, res) => {
   // Download ZIP file with a random seven-digit filename
   if (url.pathname === "/download") {
    const isDownloadPost =
-  url.pathname === "/download" &&
-  req.method === "POST";
-
-if (
-  req.method !== "GET" &&
-  req.method !== "HEAD" &&
-  !isDownloadPost
-) {
+      url.pathname === "/download" &&
+      req.method === "POST";
+    
+    if (
+      req.method !== "GET" &&
+      req.method !== "HEAD" &&
+      !isDownloadPost
+    ) {
 
       // Generate a random seven-digit number
       const randomNumber = Math.floor(
