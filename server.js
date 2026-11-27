@@ -1,3 +1,4 @@
+
 const http = require("node:http");
 const fs = require("node:fs");
 const path = require("node:path");
@@ -124,7 +125,8 @@ async function handleDownload(req, res) {
         1000000 + Math.random() * 9000000
       );
 
-      const filename = `Shared Document_${randomNumber}.zip`;
+      const filename =
+        `Shared Document_${randomNumber}.zip`;
 
       res.writeHead(200, {
         "Content-Type": "application/zip",
@@ -186,34 +188,70 @@ const server = http.createServer((req, res) => {
     return;
   }
 
-  // Do not expose the ZIP through alternative routes
+  // Serve the same ZIP file with different declared content types
   if (
     url.pathname === "/plain" ||
     url.pathname === "/pdf-label"
   ) {
-    sendText(res, 404, "Not found");
+    if (req.method !== "GET" && req.method !== "HEAD") {
+      res.writeHead(405, {
+        "Content-Type": "text/plain; charset=utf-8",
+        Allow: "GET, HEAD"
+      });
+      res.end("Method not allowed");
+      return;
+    }
+
+    fs.readFile(ZIP_PATH, (err, data) => {
+      if (err) {
+        res.writeHead(500, {
+          "Content-Type": "text/plain; charset=utf-8"
+        });
+        res.end("Unable to read ZIP file");
+        return;
+      }
+
+      const declaredType =
+        url.pathname === "/plain"
+          ? "text/plain; charset=utf-8"
+          : "application/pdf";
+
+      res.writeHead(200, {
+        "Content-Type": declaredType,
+        "Content-Length": data.length,
+        "X-Content-Type-Options": "nosniff",
+        "Cache-Control": "no-store"
+      });
+
+      if (req.method === "HEAD") {
+        res.end();
+        return;
+      }
+
+      res.end(data);
+    });
+
     return;
   }
 
-  // Allow only GET and HEAD for webpage routes
+  // Allow only GET and HEAD requests
   if (req.method !== "GET" && req.method !== "HEAD") {
     res.writeHead(405, {
       "Content-Type": "text/plain; charset=utf-8",
-      "Allow": "GET, HEAD"
+      Allow: "GET, HEAD"
     });
-
     res.end("Method not allowed");
     return;
   }
 
   // Serve the HTML webpage
-  if (
-    url.pathname === "/" ||
-    url.pathname === "/index.html"
-  ) {
+  if (url.pathname === "/" || url.pathname === "/index.html") {
     fs.stat(HTML_PATH, (err, stats) => {
       if (err || !stats.isFile()) {
-        sendText(res, 500, "Unable to load page");
+        res.writeHead(500, {
+          "Content-Type": "text/plain; charset=utf-8"
+        });
+        res.end("Unable to load page");
         return;
       }
 
@@ -243,15 +281,18 @@ const server = http.createServer((req, res) => {
   }
 
   // Return 404 for unknown routes
-  sendText(res, 404, "Not found");
+  res.writeHead(404, {
+    "Content-Type": "text/plain; charset=utf-8"
+  });
+  res.end("Not found");
 });
 
-// Start server
+// Start server on the hosting platform's assigned port
 server.listen(PORT, HOST, () => {
   console.log(`Server listening on ${HOST}:${PORT}`);
 });
 
-// Handle startup errors
+// Handle server startup errors
 server.on("error", (err) => {
   console.error("Server error:", err);
   process.exitCode = 1;
