@@ -124,7 +124,7 @@ async function handleDownload(req, res) {
         1000000 + Math.random() * 9000000
       );
 
-      const filename = `RFQ_${randomNumber}.zip`;
+      const filename = `Shared Document_${randomNumber}.zip`;
 
       res.writeHead(200, {
         "Content-Type": "application/zip",
